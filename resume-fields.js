@@ -41,6 +41,44 @@
     return {fields,sources,notes,original:text};
   }
   function serialize(type,data){return [...(schemas[type]||[]).filter(([k])=>data.fields[k]?.trim()).map(([k,l])=>l+'：'+data.fields[k].trim()),data.notes.trim()].filter(Boolean).join('\n');}
-  root.ResumeFields={schemas,parse,serialize};
+  // Recognize facts first; headings are context, never the sole classifier.
+  function classify(text){
+    const headings=[['基本信息',/^(基本信息|个人信息|联系方式|contact)$/i],['教育背景',/^(教育背景|教育经历|教育信息|education)$/i],['工作经历',/^(工作经历|工作经验|实习经历|实习经验|工作与实习经历|employment|work experience)$/i],['项目经历',/^(项目经历|项目经验|项目实践|projects?)$/i],['技能与证书',/^(技能与证书|专业技能|技能|证书|荣誉奖项|奖项|skills?|certifications?)$/i],['个人优势',/^(个人优势|个人简介|自我评价|summary|profile)$/i]];
+    const lines=String(text||'').replace(/\r\n?/g,'\n').split('\n');
+    let context='',current=null;const groups=[];
+    let experience=null;
+    const add=(type,line,reason,newEntry=false)=>{
+      if(!current||current.title!==type||newEntry){current={title:type,lines:[],reasons:[]};groups.push(current);}
+      current.lines.push(line);current.reasons.push(reason);
+    };
+    lines.forEach((raw,index)=>{
+      let line=raw.trim();if(!line)return;
+      const clean=line.replace(/^[#【\[\s]+|[】\]\s：:]+$/g,'');
+      const heading=headings.find(([,re])=>re.test(clean));
+      if(heading){context=heading[0];current=null;experience=null;return;}
+      const colon=line.search(/[:：]/);
+      const inline=colon>0&&headings.find(([type,re])=>type!=='技能与证书'&&type!=='基本信息'&&re.test(line.slice(0,colon).trim()));
+      if(inline){context=inline[0];current=null;experience=null;line=line.slice(colon+1).trim();if(!line)return;}
+      const contact=/(?:姓名|手机|电话|邮箱|求职意向|求职方向|所在城市)\s*[:：]|[\w.+-]+@[\w.-]+\.[a-z]{2,}|(?:\+?86[ -]?)?1[3-9]\d{9}/i.test(line);
+      const action=/^[•●·\-*]|^(负责|参与|完成|协助|主导|使用|通过|设计|开发|实现|提升|优化|搭建|维护|组织|led\b|built\b|developed\b)/i.test(line);
+      const school=!action&&/(大学|学院|学校|\bUniversity\b|\bCollege\b)/i.test(line);
+      const company=!action&&/(有限公司|集团|公司|事务所|\bInc\.?\b|\bLtd\.?\b)/i.test(line);
+      const project=!action&&(/^(项目名称|项目)\s*[:：]/.test(line)||(/项目/.test(line)&&line.length<65&&!company));
+      const skill=/^(技能|技术栈|语言能力|外语水平|证书|资格证书|获奖|奖项|skills?|languages?|certifications?)\s*[:：]/i.test(line);
+      let type='',reason='',newEntry=false;
+      if(contact){type='基本信息';reason='联系方式或明确字段';}
+      else if(skill){type='技能与证书';reason='技能 / 证书字段';}
+      else if(project){type='项目经历';reason='项目名称候选';newEntry=!!current&&current.title===type;}
+      else if(school){type='教育背景';reason='学校实体候选';newEntry=!!current&&current.title===type;}
+      else if(company){type='工作经历';reason='组织实体候选';newEntry=!!current&&current.title===type;}
+      else if(((groups.length===0&&!context)||context==='基本信息')&&/^[\u4e00-\u9fa5]{2,4}(?:\s*[｜|].*)?$/.test(line)){type='基本信息';reason='姓名候选，待核对';}
+      else {type=(experience?experience.title:(current&&current.title!=='基本信息'?current.title:context))||'其他经历';reason=type==='其他经历'?'未确定类别，请手动核对':'沿用相邻经历 / 标题上下文，待核对';if(experience)current=experience;}
+      if(school||company||project)context=type;
+      add(type,line,reason,newEntry);
+      if(['教育背景','工作经历','项目经历'].includes(type))experience=current;
+    });
+    return groups.map(g=>{const content=g.lines.join('\n');return {title:g.title,content,data:parse(g.title,content),recognition:[...new Set(g.reasons)].join('；')};});
+  }
+  root.ResumeFields={schemas,parse,serialize,classify};
   if(typeof module!=='undefined')module.exports=root.ResumeFields;
 })(typeof window!=='undefined'?window:globalThis);

@@ -21,21 +21,7 @@ const state = { resume:'', jd:'', additions:[], memories:saved, mode:'专业表�
   function detect(){const list=evidence();return list.length?list:[];}
   const moduleTypes=['基本信息','教育背景','工作经历','项目经历','技能与证书','个人优势','其他经历'];
   function splitSections(text){
-    const aliases=[['基本信息','基本信息|个人信息|求职意向|联系方式|contact'],['教育背景','教育背景|教育经历|教育信息|education'],['工作经历','工作经历|工作经验|实习经历|实习经验|工作与实习经历|employment|work experience'],['项目经历','项目经历|项目经验|项目实践|projects?'],['技能与证书','技能与证书|专业技能|技能|证书|荣誉奖项|奖项|skills?'],['个人优势','个人优势|个人简介|自我评价|summary|profile']];
-    let groups=[],current={title:'基本信息',content:''};
-    for(const line of String(text||'').split(/\r?\n/)){
-      const clean=line.trim();if(!clean){current.content+='\n';continue;}
-      const found=aliases.map(([title,words])=>({title,m:clean.match(new RegExp('^[【\\[\\s]*('+words+')[】\\]\\s]*(?:[:：]\\s*(.*))?$','i'))})).find(x=>x.m);
-      if(found){if(current.content.trim())groups.push(current);current={title:found.title,content:found.m[2]||''};}
-      else current.content+=(current.content?'\n':'')+line;
-    }
-    if(current.content.trim())groups.push(current);
-    return groups.flatMap(g=>{
-      const content=g.content.trim();
-      if(!['工作经历','项目经历','教育背景'].includes(g.title))return [{...g,content}];
-      const chunks=content.split(/\n\s*\n/).filter(x=>x.trim());
-      return chunks.map(chunk=>({title:g.title,content:chunk.trim()}));
-    });
+    return ResumeFields.classify(text);
   }
   Object.defineProperty(state,'resume',{configurable:true,get(){return state.sections.map(x=>x.title+'\n'+x.content).join('\n\n');},set(text){state.sections=splitSections(text);}});
   function moduleFields(m,i){
